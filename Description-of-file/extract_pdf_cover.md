@@ -4,10 +4,11 @@
 Extracts high-resolution first-page PDF covers using the `pypdfium2` rasterizer engine (`extract_pdf_cover.py`), backed by `IShellItemImageFactory` and an aesthetic procedural GDI+ vector book-cover generator fallback.
 
 ## Exports & Functions
-- `triggerPdfCoverBatchExtraction(const std::wstring& directoryPath) -> void`
-  - **Description**: Spawns a hidden background worker (`extract_pdf_cover.py`) to rasterize page 1 of all PDF files in the target directory into `.cache/<filename>.png` at 2.0x retina scale.
+- `triggerPdfCoverBatchExtraction(const std::wstring& directoryPath, HWND hwndNotify = nullptr) -> void`
+  - **Description**: Spawns a hidden background worker (`extract_pdf_cover.py`) to rasterize page 1 of all PDF files into `.cache/<filename>.png` completely asynchronously without blocking the UI thread. When finished, posts `WM_APP_CACHE_UPDATED` to `hwndNotify` for hot-reload.
   - **Parameters**:
     - `directoryPath`: The path to the folder containing PDF documents.
+    - `hwndNotify`: Window handle to receive the completion notification message.
   - **Returns**: None.
 - `extractPdfCover(const std::wstring& filePath, const std::wstring& displayName, int targetWidth, int targetHeight) -> Gdiplus::Bitmap*`
   - **Description**: Checks for the pre-rasterized first-page thumbnail in `.cache/`, loads it directly, and fits it to `targetWidth` x `targetHeight` preserving exact aspect ratio with high quality bicubic interpolation. Falls back to Shell COM thumbnails and procedural covers if needed.

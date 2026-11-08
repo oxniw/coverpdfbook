@@ -20,10 +20,15 @@
 #include <vector>
 
 // Window class names and titles
-#define OVERLAY_WINDOW_CLASS   L"PdfBookOverlayWindowClass"
-#define OVERLAY_WINDOW_TITLE   L"PDF Book Covers Overlay"
-#define CONTROL_PANEL_CLASS    L"PdfBookControlPanelClass"
-#define CONTROL_PANEL_TITLE    L"Overlay Controls (M*N Grid & Size)"
+#define OVERLAY_WINDOW_CLASS   L"PdfBookOverlayWindowClass" // Window class identifier for overlay
+#define OVERLAY_WINDOW_TITLE   L"PDF Book Covers Overlay" // Window caption for overlay
+#define CONTROL_PANEL_CLASS    L"PdfBookControlPanelClass" // Window class identifier for control panel
+#define CONTROL_PANEL_TITLE    L"Overlay Controls (M*N Grid & Size)" // Window caption for control panel
+
+// Custom Application Messages
+#define WM_APP_TRAY             (WM_APP + 101) // System tray notification callback message
+#define WM_APP_CACHE_UPDATED    (WM_APP + 102) // Notification when background thumbnail extraction completes
+#define WM_APP_PRELOAD_ADJACENT (WM_APP + 103) // Deferred message to preload adjacent pages in memory
 
 // Control Identifier Constants for Floating Control Panel
 enum ControlIDs {

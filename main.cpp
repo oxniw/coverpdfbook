@@ -14,6 +14,7 @@
 #include "radial_menu_integration.h"
 #include "path_utils.h"
 #include "move_window_integration.h"
+#include "preload_manager.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -55,7 +56,10 @@ namespace {
         renderOverlayCanvas(g_hwndOverlay, g_settings, g_items, g_layout, g_itemRects, &g_animState);
 
         // Update control panel stats
-        updateControlPanelUI(g_hwndPanel, g_settings, (int)g_items.size(), g_layout.totalPages);
+        updateControlPanelUI(g_hwndPanel, g_settings, (int)g_items.size(), g_layout.totalPages); // Update floating toolbar statistics
+
+        // Post non-blocking message to quietly preload adjacent pages while user is idle
+        PostMessage(g_hwndOverlay, WM_APP_PRELOAD_ADJACENT, 0, 0); // Asynchronously preload next & previous page
     }
 
     void triggerPageTransition(int newPage, AnimationDirection dir) {
@@ -90,8 +94,8 @@ namespace {
         }
         g_items.clear();
 
-        // Trigger batch extraction of page 1 covers
-        triggerPdfCoverBatchExtraction(g_settings.pdfDirectory);
+        // Trigger non-blocking background batch extraction of page 1 covers
+        triggerPdfCoverBatchExtraction(g_settings.pdfDirectory, g_hwndOverlay); // Asynchronously extract covers without freezing UI
 
         // Scan folder again
         g_items = scanPdfDirectory(g_settings.pdfDirectory);
@@ -317,6 +321,20 @@ namespace {
                 refreshDisplay();
                 return 0;
             }
+            case WM_APP_PRELOAD_ADJACENT: {
+                preloadAdjacentPages(g_items, g_settings, g_layout); // Quietly preload adjacent pages into memory while idle
+                return 0; // Return handled message status
+            }
+            case WM_APP_CACHE_UPDATED: {
+                // Free stale thumbnails on visible page and refresh now that retina PNGs are available
+                for (int i = g_layout.startIndex; i < g_layout.endIndex && i < (int)g_items.size(); ++i) { // Loop visible items
+                    if (g_items[i].type == ITEM_TYPE_PDF) { // Check if item is PDF document
+                        freePdfThumbnail(g_items[i].thumbnail); // Invalidate placeholder thumbnail
+                    } // Close if statement
+                } // Close item loop
+                refreshDisplay(); // Redraw overlay with freshly rasterized retina covers
+                return 0; // Return handled message status
+            }
             case WM_APP_TRAY: {
                 if (lParam == WM_LBUTTONUP || lParam == WM_RBUTTONUP) {
                     if (g_hwndPanel && IsWindow(g_hwndPanel)) {
@@ -359,27 +377,29 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     // 4. Set default browsing path to Windows Desktop and perform initial scan
     g_settings.pdfDirectory = getDesktopDirectoryPath(); // Initialize default path to Windows Desktop
     g_settings.availableFolders = discoverPdfFolders(); // Discover relative PDF folders in app root
-    triggerPdfCoverBatchExtraction(g_settings.pdfDirectory); // Pre-rasterize first-page covers if PDFs exist
     g_items = scanPdfDirectory(g_settings.pdfDirectory); // Scan desktop directory for folders and PDFs
 
     // 5. Create full desktop screen uninteractable transparent overlay window
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int screenW = GetSystemMetrics(SM_CXSCREEN); // Query screen pixel width
+    int screenH = GetSystemMetrics(SM_CYSCREEN); // Query screen pixel height
 
-    g_hwndOverlay = CreateWindowEx(
-        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
-        OVERLAY_WINDOW_CLASS,
-        OVERLAY_WINDOW_TITLE,
-        WS_POPUP,
-        0, 0, screenW, screenH,
-        NULL, NULL, hInstance, NULL
-    );
+    g_hwndOverlay = CreateWindowEx( // Create layered overlay window
+        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT, // Window styles for click-through topmost layer
+        OVERLAY_WINDOW_CLASS, // Registered overlay window class
+        OVERLAY_WINDOW_TITLE, // Overlay window caption
+        WS_POPUP, // Popup window style
+        0, 0, screenW, screenH, // Span full desktop display dimensions
+        NULL, NULL, hInstance, NULL // Window creation parameters
+    ); // End CreateWindowEx call
 
-    if (!g_hwndOverlay) {
-        Gdiplus::GdiplusShutdown(g_gdiplusToken);
-        CoUninitialize();
-        return 1;
-    }
+    if (!g_hwndOverlay) { // Verify overlay window creation
+        Gdiplus::GdiplusShutdown(g_gdiplusToken); // Shutdown GDI+ subsystem
+        CoUninitialize(); // Uninitialize COM library
+        return 1; // Return failure code
+    } // Close if statement
+
+    // Trigger non-blocking background batch extraction with completion notification to overlay
+    triggerPdfCoverBatchExtraction(g_settings.pdfDirectory, g_hwndOverlay); // Asynchronously pre-rasterize covers without UI stall
 
     // Initialize 6-sector right-click gesture radial menu
     initRadialMenuIntegration(g_hwndOverlay);

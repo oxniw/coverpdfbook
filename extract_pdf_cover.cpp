@@ -110,38 +110,58 @@ namespace {
     }
 }
 
-void triggerPdfCoverBatchExtraction(const std::wstring& directoryPath) {
-    CreateDirectoryW(L".cache", NULL);
-    std::wstring cmd = L"python extract_pdf_cover.py \"" + directoryPath + L"\"";
+namespace {
+    struct BatchNotifyContext { // Context structure for background worker thread
+        HANDLE hProcess; // Handle to the Python background process
+        HWND hwndNotify; // Window handle to receive completion notification
+    }; // End context structure
 
-    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION pi = { 0 };
+    static DWORD WINAPI BatchWorkerThreadProc(LPVOID lpParam) { // Thread function waiting on Python extraction
+        BatchNotifyContext* ctx = (BatchNotifyContext*)lpParam; // Cast parameter to context pointer
+        WaitForSingleObject(ctx->hProcess, 60000); // Wait in background thread for process completion
+        CloseHandle(ctx->hProcess); // Close background process handle
+        if (ctx->hwndNotify && IsWindow(ctx->hwndNotify)) { // Verify notification window is valid
+            PostMessage(ctx->hwndNotify, WM_APP_CACHE_UPDATED, 0, 0); // Send cache updated message to main overlay
+        } // Close if statement
+        delete ctx; // Clean up dynamically allocated context
+        return 0; // Exit thread successfully
+    } // End thread procedure
+} // Close anonymous namespace
 
-    std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
-    cmdBuf.push_back(L'\0');
+void triggerPdfCoverBatchExtraction(const std::wstring& directoryPath, HWND hwndNotify) {
+    CreateDirectoryW(L".cache", NULL); // Ensure .cache directory exists
+    std::wstring cmd = L"python extract_pdf_cover.py \"" + directoryPath + L"\""; // Build python command string
 
-    if (CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 4000);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-    }
+    STARTUPINFOW si = { sizeof(STARTUPINFOW) }; // Initialize startup info structure
+    si.dwFlags = STARTF_USESHOWWINDOW; // Specify window visibility flag
+    si.wShowWindow = SW_HIDE; // Run Python process completely hidden in background
+    PROCESS_INFORMATION pi = { 0 }; // Initialize process information structure
+
+    std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end()); // Copy command string to mutable buffer
+    cmdBuf.push_back(L'\0'); // Null-terminate command buffer
+
+    if (CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) { // Launch Python process asynchronously
+        CloseHandle(pi.hThread); // Close thread handle immediately
+        BatchNotifyContext* ctx = new BatchNotifyContext{ pi.hProcess, hwndNotify }; // Allocate thread context
+        HANDLE hThread = CreateThread(NULL, 0, BatchWorkerThreadProc, ctx, 0, NULL); // Spawn background monitor thread
+        if (hThread) { // Check if thread created
+            CloseHandle(hThread); // Close thread handle so it cleans itself up
+        } else { // Fallback if thread creation fails
+            CloseHandle(pi.hProcess); // Close process handle
+            delete ctx; // Delete context
+        } // Close thread check
+    } // Close CreateProcess check
 }
 
 Gdiplus::Bitmap* extractPdfCover(const std::wstring& filePath, const std::wstring& displayName, int targetWidth, int targetHeight) {
-    if (targetWidth <= 0) targetWidth = 180;
-    if (targetHeight <= 0) targetHeight = 250;
+    if (targetWidth <= 0) targetWidth = 180; // Ensure minimum valid width
+    if (targetHeight <= 0) targetHeight = 250; // Ensure minimum valid height
 
-    std::wstring filename = getFileNameFromPath(filePath);
-    std::wstring cachePath = L".cache\\" + filename + L".png";
+    std::wstring filename = getFileNameFromPath(filePath); // Extract filename from path
+    std::wstring cachePath = L".cache\\" + filename + L".png"; // Construct cache file path
 
-    // 1. Try loading cached rendered page thumbnail
-    if (!fileExists(cachePath)) {
-        triggerPdfCoverBatchExtraction(L"pdf");
-    }
-
-    if (fileExists(cachePath)) {
+    // 1. Try loading cached rendered page thumbnail without blocking UI
+    if (fileExists(cachePath)) { // Check if pre-rendered PNG exists on disk
         Gdiplus::Bitmap* cachedBmp = Gdiplus::Bitmap::FromFile(cachePath.c_str());
         if (cachedBmp != nullptr && cachedBmp->GetLastStatus() == Gdiplus::Ok) {
             Gdiplus::Bitmap* finalBmp = new Gdiplus::Bitmap(targetWidth, targetHeight, PixelFormat32bppARGB);

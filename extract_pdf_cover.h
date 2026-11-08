@@ -9,8 +9,9 @@
 #include "config.h" // Include configuration and data models
 #include <string> // Include standard string library
 
-// Pre-rasterizes first-page thumbnails for all PDFs in the given folder into .cache/.
-void triggerPdfCoverBatchExtraction(const std::wstring& directoryPath); // Declare triggerPdfCoverBatchExtraction function
+// Asynchronously pre-rasterizes first-page thumbnails for PDFs in background without blocking UI.
+// When extraction is finished, sends WM_APP_CACHE_UPDATED to hwndNotify.
+void triggerPdfCoverBatchExtraction(const std::wstring& directoryPath, HWND hwndNotify = nullptr); // Declare non-blocking triggerPdfCoverBatchExtraction function
 
 // Extracts or retrieves the rendered page 1 cover bitmap for a given PDF file at target dimensions.
 Gdiplus::Bitmap* extractPdfCover(const std::wstring& filePath, const std::wstring& displayName, int targetWidth, int targetHeight); // Declare extractPdfCover function
