@@ -1,0 +1,20 @@
+# Build outputs and executables
+*.exe
+*.o
+*.obj
+
+# Temporary cache and thumbnails
+.cache/
+__pycache__/
+*.pyc
+
+# Scratch test files
+test_out.png
+test_tray.cpp
+
+# CMake intermediate build files
+movewindowsystem/build/CMakeFiles/
+movewindowsystem/build/CMakeCache.txt
+movewindowsystem/build/cmake_install.cmake
+movewindowsystem/build/Makefile
+movewindowsystem/build/Makefile2
